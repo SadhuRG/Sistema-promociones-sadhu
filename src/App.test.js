@@ -1,8 +1,9 @@
-import { render, screen } from '@testing-library/react';
-import App from './App';
+import { render, screen } from "@testing-library/react";
+import { expect, test } from "vitest";
+import App from "./App";
 
-test('renders learn react link', () => {
+test("renderiza el sistema de promociones", () => {
   render(<App />);
-  const linkElement = screen.getByText(/learn react/i);
-  expect(linkElement).toBeInTheDocument();
+  expect(screen.getByText(/ROMA SALUD/i)).toBeInTheDocument();
+  expect(screen.getByText(/Verificando sesión/i)).toBeInTheDocument();
 });

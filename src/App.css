@@ -1,38 +1,221 @@
-.App {
-  text-align: center;
+body {
+  overflow-x: hidden;
+  scroll-behavior: smooth;
 }
 
-.App-logo {
-  height: 40vmin;
-  pointer-events: none;
+::-webkit-scrollbar {
+  width: 10px;
 }
 
-@media (prefers-reduced-motion: no-preference) {
-  .App-logo {
-    animation: App-logo-spin infinite 20s linear;
-  }
+::-webkit-scrollbar-track {
+  background: #e5e7eb;
 }
 
-.App-header {
-  background-color: #282c34;
+#sidebar {
+  transition: transform .35s ease, width .35s ease, box-shadow .35s ease;
+  will-change: transform;
+}
+
+#mainContent {
+  transition: all .35s ease;
   min-height: 100vh;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  font-size: calc(10px + 2vmin);
-  color: white;
+  max-width: 100%;
 }
 
-.App-link {
-  color: #61dafb;
+.promo-card {
+  transition: transform .4s ease, box-shadow .4s ease, border .3s ease;
+  border: 1px solid transparent;
 }
 
-@keyframes App-logo-spin {
+.promo-card:hover {
+  border-color: rgba(37, 99, 235, .15);
+  box-shadow: 0 20px 40px rgba(0, 0, 0, .10);
+  transform: translateY(-10px);
+}
+
+.promo-image {
+  transition: transform .8s ease, filter .4s ease;
+}
+
+.promo-card:hover .promo-image {
+  filter: brightness(1.02);
+  transform: scale(1.05);
+}
+
+#modalViewer {
+  animation: fadeBackground .3s ease;
+}
+
+#modalImage {
+  animation: zoomImage .3s ease;
+}
+
+.modal-button {
+  transition: transform .3s ease, background .3s ease, opacity .3s ease;
+}
+
+.modal-button:hover {
+  transform: scale(1.1);
+}
+
+.sidebar-link {
+  position: relative;
+  transition: all .3s ease;
+}
+
+.sidebar-link:hover {
+  transform: translateX(6px);
+}
+
+.sidebar-link::before {
+  background: white;
+  border-radius: 999px;
+  content: "";
+  height: 0;
+  left: -10px;
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  transition: height .3s ease;
+  width: 4px;
+}
+
+.sidebar-link:hover::before {
+  height: 60%;
+}
+
+.sidebar-nav {
+  scrollbar-width: none;
+}
+
+.sidebar-nav::-webkit-scrollbar {
+  width: 0;
+}
+
+.stats-card {
+  transition: transform .3s ease, box-shadow .3s ease;
+}
+
+.stats-card:hover {
+  box-shadow: 0 20px 35px rgba(0, 0, 0, .08);
+  transform: translateY(-6px);
+}
+
+.fade-in {
+  animation: fadeIn .5s ease both;
+}
+
+.animate-fade {
+  animation: fade .3s ease;
+}
+
+@keyframes fadeBackground {
   from {
-    transform: rotate(0deg);
+    opacity: 0;
   }
   to {
-    transform: rotate(360deg);
+    opacity: 1;
+  }
+}
+
+@keyframes zoomImage {
+  from {
+    opacity: 0;
+    transform: scale(.92);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fade {
+  from {
+    opacity: 0;
+    transform: scale(.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@media (max-width: 1023px) {
+  #sidebar {
+    transform: translateX(-100%);
+  }
+
+  #sidebar.sidebar-open {
+    transform: translateX(0);
+  }
+
+  #mainContent {
+    margin-left: 0;
+    width: 100%;
+  }
+}
+
+@media (min-width: 1024px) {
+  #sidebar {
+    transform: translateX(0);
+  }
+
+  #mainContent {
+    margin-left: 260px;
+    width: calc(100% - 260px);
+  }
+}
+
+@media (max-width: 640px) {
+  h1 {
+    line-height: 1;
+  }
+
+  h2 {
+    font-size: 2rem !important;
+    line-height: 1.1;
+  }
+
+  button,
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
+
+  .promo-card {
+    border-radius: 28px;
+  }
+
+  .promo-card:hover,
+  .stats-card:hover,
+  .sidebar-link:hover,
+  .modal-button:hover {
+    transform: none;
+  }
+
+  .promo-card img {
+    height: 350px !important;
+  }
+
+  table {
+    min-width: 640px;
+  }
+
+  #mainContent {
+    padding-top: 5.5rem !important;
+    padding-left: 1rem !important;
+    padding-right: 1rem !important;
   }
 }
