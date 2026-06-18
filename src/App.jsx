@@ -2493,11 +2493,46 @@ function SpecialtyMultiSelect({ specialties, selectedIds, onChange }) {
 
 function PromotionForm({ mode, promo, specialties, isSaving, onCancel, onSave }) {
   const isEditing = mode === "editar";
-  const [preview, setPreview] = useState(promo?.flyer || null);
+  const existingImageUrl = promo?.imagen_url || promo?.flyer || "";
+  const [preview, setPreview] = useState(existingImageUrl || null);
+  const [selectedFile, setSelectedFile] = useState(null);
+  const previewBlobRef = useRef(null);
   const [selectedSpecialtyIds, setSelectedSpecialtyIds] = useState(
     () => (promo?.especialidad_ids || []).map(String)
   );
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    return () => {
+      if (previewBlobRef.current) {
+        URL.revokeObjectURL(previewBlobRef.current);
+      }
+    };
+  }, []);
+
+  const updatePreview = (file) => {
+    if (previewBlobRef.current) {
+      URL.revokeObjectURL(previewBlobRef.current);
+      previewBlobRef.current = null;
+    }
+
+    if (file) {
+      const blobUrl = URL.createObjectURL(file);
+      previewBlobRef.current = blobUrl;
+      setPreview(blobUrl);
+      return;
+    }
+
+    setPreview(existingImageUrl || null);
+  };
+
+  const handleFlyerChange = (event) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      setSelectedFile(file);
+      updatePreview(file);
+    }
+  };
 
   const handleSubmit = async (event) => {
     event.preventDefault();
@@ -2506,6 +2541,12 @@ function PromotionForm({ mode, promo, specialties, isSaving, onCancel, onSave })
 
     if (selectedSpecialtyIds.length === 0) {
       setError("Selecciona al menos una especialidad.");
+      return;
+    }
+
+    const hasFlyer = Boolean(selectedFile || existingImageUrl);
+    if (!hasFlyer) {
+      setError("Debes subir un flyer para la promoción.");
       return;
     }
 
@@ -2518,8 +2559,8 @@ function PromotionForm({ mode, promo, specialties, isSaving, onCancel, onSave })
           fecha_inicio: data.get("fecha_inicio"),
           fecha_fin: data.get("fecha_fin"),
           activa: data.get("activa") === "true",
-          imagen_url: promo?.imagen_url,
-          flyer: event.currentTarget.flyer.files,
+          imagen_url: existingImageUrl,
+          flyer: selectedFile ? [selectedFile] : [],
         },
         promo?.id
       );
@@ -2601,13 +2642,7 @@ function PromotionForm({ mode, promo, specialties, isSaving, onCancel, onSave })
                 type="file"
                 name="flyer"
                 accept=".png,.jpg,.jpeg,.webp"
-                required={!isEditing}
-                onChange={(event) => {
-                  const file = event.target.files?.[0];
-                  if (file) {
-                    setPreview(URL.createObjectURL(file));
-                  }
-                }}
+                onChange={handleFlyerChange}
                 className="w-full mt-3 p-4 sm:p-5 rounded-2xl border border-gray-300 bg-white"
               />
             </div>
