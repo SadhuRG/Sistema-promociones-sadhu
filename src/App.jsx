@@ -1,4 +1,30 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import useEmblaCarousel from "embla-carousel-react";
+import Autoplay from "embla-carousel-autoplay";
+import {
+  BsArrowLeft,
+  BsBoxArrowRight,
+  BsCalendarWeek,
+  BsCheckCircleFill,
+  BsChevronDown,
+  BsChevronLeft,
+  BsChevronRight,
+  BsFileBarGraph,
+  BsGrid,
+  BsImages,
+  BsList,
+  BsMegaphone,
+  BsPauseCircleFill,
+  BsPencil,
+  BsPeople,
+  BsPersonBadge,
+  BsPersonCircle,
+  BsSearch,
+  BsShieldCheck,
+  BsSpeedometer2,
+  BsX,
+  BsZoomIn,
+} from "react-icons/bs";
 import "./App.css";
 import { isSupabaseConfigured, supabase } from "./supabaseClient";
 
@@ -113,27 +139,43 @@ const formatAuthError = (error) => {
   return `No se pudo iniciar sesión: ${message}`;
 };
 
-const iconMap = {
-  "badge-check": "✓",
-  "badge-percent": "%",
-  "layout-dashboard": "▦",
-  "log-out": "↗",
-  "monitor-play": "▣",
-  "plus-circle": "+",
-  pencil: "✎",
-  search: "⌕",
-  "shield-check": "✓",
-  user: "●",
-  expand: "⛶",
-  menu: "☰",
-  close: "×",
+const APP_ICON_SIZE = 20;
+
+const appIconMap = {
+  "arrow-left": BsArrowLeft,
+  "box-arrow-right": BsBoxArrowRight,
+  "calendar-week": BsCalendarWeek,
+  "check-circle": BsCheckCircleFill,
+  catalog: BsImages,
+  "chevron-down": BsChevronDown,
+  "chevron-left": BsChevronLeft,
+  "chevron-right": BsChevronRight,
+  close: BsX,
+  dashboard: BsSpeedometer2,
+  expand: BsZoomIn,
+  "file-bar-graph": BsFileBarGraph,
+  grid: BsGrid,
+  megaphone: BsMegaphone,
+  menu: BsList,
+  "pause-circle": BsPauseCircleFill,
+  pencil: BsPencil,
+  people: BsPeople,
+  "person-badge": BsPersonBadge,
+  "person-circle": BsPersonCircle,
+  search: BsSearch,
+  "shield-check": BsShieldCheck,
 };
 
-function Icon({ name, className = "" }) {
+function AppIcon({ name, size = APP_ICON_SIZE, className = "" }) {
+  const IconComponent = appIconMap[name];
+  if (!IconComponent) return null;
+
   return (
-    <span className={`inline-flex items-center justify-center ${className}`}>
-      {iconMap[name] || "•"}
-    </span>
+    <IconComponent
+      size={size}
+      className={`app-icon shrink-0 ${className}`}
+      aria-hidden="true"
+    />
   );
 }
 
@@ -618,7 +660,7 @@ function App() {
       const { data, error } = await query;
 
       if (error) {
-        throw new Error(`No se pudo guardar la promoción: ${error.message}`);
+        throw new Error(`No se pudo guardar la promoción hay un codigo igual para otra promocion`);
       }
 
       await savePromotionSpecialties(data.id, formData.especialidad_ids);
@@ -849,6 +891,7 @@ function App() {
           onNavigate={navigate}
           onLogout={logout}
           onOpenModal={openModal}
+          isViewerOpen={modalIndex !== null}
         />
         <ImageModal
           promotions={modalPromotions}
@@ -875,6 +918,7 @@ function App() {
           onNavigate={navigate}
           onLogout={logout}
           onOpenModal={openModal}
+          isViewerOpen={modalIndex !== null}
         />
         <ImageModal
           promotions={activePromotions}
@@ -1139,8 +1183,11 @@ function LoginScreen({ onLogin, onCatalog }) {
 
   return (
     <main className="min-h-screen relative overflow-hidden">
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,_#60A5FA,_transparent_32%),linear-gradient(135deg,_#0F172A,_#1D4ED8_48%,_#38BDF8)]" />
-      <div className="absolute inset-0 bg-black/35" />
+      <div
+        className="absolute inset-0 bg-cover bg-center bg-no-repeat"
+        style={{ backgroundImage: "url(/roma.jpg)" }}
+      />
+      <div className="absolute inset-0 bg-black/40" />
 
       <section className="relative z-10 min-h-screen flex items-center justify-center px-6">
         <div className="w-full max-w-md">
@@ -1200,7 +1247,7 @@ function AdminLayout({
   const isMarketing = userProfile?.rol === MARKETING_ROLE;
 
   return (
-    <div className="bg-[#f4f8fc] min-h-screen overflow-x-hidden">
+    <div className="bg-[#f4f8fc] min-h-screen overflow-x-hidden lg:h-screen lg:overflow-hidden">
       <button
         type="button"
         id="toggleSidebar"
@@ -1208,7 +1255,7 @@ function AdminLayout({
         className="fixed top-5 left-5 z-50 bg-blue-700 hover:bg-blue-800 text-white p-3 rounded-2xl shadow-2xl transition lg:hidden"
         aria-label="Abrir menú"
       >
-        <Icon name="menu" className="w-6 h-6 text-xl" />
+        <AppIcon name="menu" size={22} />
       </button>
 
       <button
@@ -1234,31 +1281,31 @@ function AdminLayout({
           </p>
         </div>
 
-        <nav className="sidebar-nav flex-1 overflow-y-auto p-4 space-y-2">
+        <nav className="sidebar-nav flex-1 overflow-y-auto p-4 space-y-1.5">
           {isAdmin && (
             <SidebarButton
-              icon="log-out"
-              label="← Volver a modo usuario"
+              icon="arrow-left"
+              label="Volver a modo usuario"
               onClick={() => onNavigate("catalogo")}
             />
           )}
           <SidebarButton
             active={view === "dashboard"}
-            icon="layout-dashboard"
+            icon="dashboard"
             label="Dashboard"
             onClick={() => onNavigate("dashboard")}
           />
           {isMarketing && (
             <SidebarButton
               active={view === "catalogo"}
-              icon="monitor-play"
+              icon="catalog"
               label="Ver Catálogo"
               onClick={() => onNavigate("catalogo")}
             />
           )}
           {(isAdmin || isMarketing) && (
             <SidebarButton
-              icon="plus-circle"
+              icon="megaphone"
               label="Nueva Promoción"
               onClick={() => onNavigate("nueva")}
             />
@@ -1267,41 +1314,41 @@ function AdminLayout({
             <>
               <SidebarButton
                 active={view === "especialidades"}
-                icon="badge-check"
+                icon="grid"
                 label="Especialidades"
                 onClick={() => onNavigate("especialidades")}
               />
               <SidebarButton
                 active={view === "doctores"}
-                icon="user"
+                icon="person-badge"
                 label="Doctores"
                 onClick={() => onNavigate("doctores")}
               />
               <SidebarButton
                 active={view === "horarios-admin"}
-                icon="monitor-play"
+                icon="calendar-week"
                 label="Admin Horarios"
                 onClick={() => onNavigate("horarios-admin")}
               />
               <SidebarButton
                 active={view === "informes-admin"}
-                icon="badge-percent"
+                icon="file-bar-graph"
                 label="Admin Informes"
                 onClick={() => onNavigate("informes-admin")}
               />
               <SidebarButton
                 active={view === "usuarios"}
-                icon="shield-check"
+                icon="people"
                 label="Usuarios"
                 onClick={() => onNavigate("usuarios")}
               />
             </>
           )}
-          <SidebarButton icon="log-out" label="Cerrar sesión" danger onClick={onLogout} />
+          <SidebarButton icon="box-arrow-right" label="Cerrar sesión" danger onClick={onLogout} />
         </nav>
       </aside>
 
-      <main id="mainContent" className="transition-all duration-300 w-full max-w-full px-4 sm:px-6 pt-24 pb-10 lg:px-8 xl:px-10">
+      <main id="mainContent" className="promo-scroll transition-all duration-300 w-full max-w-full px-4 sm:px-6 pt-24 pb-10 lg:px-8 xl:px-10 lg:h-screen lg:overflow-y-auto lg:min-h-0">
         {children}
       </main>
     </div>
@@ -1313,12 +1360,14 @@ function SidebarButton({ active, danger, icon, label, onClick }) {
     <button
       type="button"
       onClick={onClick}
-      className={`sidebar-link flex w-full items-center gap-3 transition p-4 rounded-2xl text-left ${
-        active ? "bg-white/10" : ""
-      } ${danger ? "hover:bg-red-500 mt-4" : "hover:bg-white/10"}`}
+      className={`sidebar-link flex w-full items-center gap-3 transition-all duration-200 p-3.5 rounded-xl text-left ${
+        active ? "sidebar-link--active bg-white/15" : ""
+      } ${danger ? "sidebar-link--danger hover:bg-red-500/90 mt-4" : "hover:bg-white/10"}`}
     >
-      <Icon name={icon} className="w-5 h-5 text-lg" />
-      <span className="font-semibold text-sm">{label}</span>
+      <span className={`sidebar-link-icon-wrap ${danger ? "sidebar-link-icon-wrap--danger" : ""}`}>
+        <AppIcon name={icon} size={18} />
+      </span>
+      <span className="font-semibold text-sm leading-snug">{label}</span>
     </button>
   );
 }
@@ -1395,23 +1444,52 @@ function TopUserNavigation({
 
 function UserProfileMenu({ userProfile, isAdmin, isMarketing, onAdminMode, onLogout }) {
   const [open, setOpen] = useState(false);
+  const menuRef = useRef(null);
   const displayName = userProfile?.username?.split("@")[0] || "Usuario";
 
+  useEffect(() => {
+    if (!open) return undefined;
+
+    const handlePointerDown = (event) => {
+      if (menuRef.current && !menuRef.current.contains(event.target)) {
+        setOpen(false);
+      }
+    };
+
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape") {
+        setOpen(false);
+      }
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [open]);
+
   return (
-    <div className="relative w-full sm:w-auto">
+    <div className="relative w-full sm:w-auto" ref={menuRef}>
       <button
         type="button"
         onClick={() => setOpen((current) => !current)}
-        className="w-full sm:w-auto bg-blue-50 border border-blue-100 hover:bg-blue-100 rounded-2xl px-4 sm:px-5 py-3 flex items-center justify-between gap-3 shadow-lg transition"
+        className="user-menu-trigger w-full sm:w-auto bg-blue-50 border border-blue-100 hover:bg-blue-100 rounded-2xl px-4 sm:px-5 py-3 flex items-center justify-between gap-3 shadow-lg transition"
       >
-        <div className="bg-blue-700 text-white rounded-xl p-3">
-          <Icon name="user" className="w-5 h-5" />
+        <div className="bg-blue-700 text-white rounded-xl p-2.5 flex items-center justify-center">
+          <AppIcon name="person-circle" size={22} className="text-white" />
         </div>
         <div className="text-left min-w-0">
           <p className="text-sm text-gray-500">{userProfile?.rol}</p>
           <p className="font-black text-gray-800 truncate max-w-[150px] sm:max-w-[180px]">{displayName}</p>
         </div>
-        <span className="text-gray-500 font-black">⌄</span>
+        <AppIcon
+          name="chevron-down"
+          size={18}
+          className={`text-gray-500 transition-transform duration-200 ${open ? "rotate-180" : ""}`}
+        />
       </button>
 
       {open && (
@@ -1427,17 +1505,22 @@ function UserProfileMenu({ userProfile, isAdmin, isMarketing, onAdminMode, onLog
                 setOpen(false);
                 onAdminMode();
               }}
-              className="w-full text-left px-4 py-3 rounded-2xl hover:bg-blue-50 text-blue-700 font-bold mt-2"
+              className="w-full text-left px-4 py-3 rounded-2xl hover:bg-blue-50 text-blue-700 font-bold mt-2 flex items-center gap-3 transition"
             >
-              {isAdmin ? "Cambiar a vista de administrador" : "Ir al dashboard de marketing"}
+              <AppIcon name="shield-check" size={18} />
+              <span>{isAdmin ? "Cambiar a vista de administrador" : "Ir al dashboard de marketing"}</span>
             </button>
           )}
           <button
             type="button"
-            onClick={onLogout}
-            className="w-full text-left px-4 py-3 rounded-2xl hover:bg-red-50 text-red-600 font-bold"
+            onClick={() => {
+              setOpen(false);
+              onLogout();
+            }}
+            className="w-full text-left px-4 py-3 rounded-2xl hover:bg-red-50 text-red-600 font-bold flex items-center gap-3 transition"
           >
-            Cerrar sesión
+            <AppIcon name="box-arrow-right" size={18} />
+            <span>Cerrar sesión</span>
           </button>
         </div>
       )}
@@ -1779,7 +1862,7 @@ function Dashboard({
         <div className="bg-white rounded-3xl shadow-xl border border-gray-100 px-6 py-5 flex flex-col sm:flex-row items-center justify-between gap-5 w-full xl:w-auto sm:min-w-[340px]">
           <div className="flex items-center gap-4">
             <div className="w-14 h-14 bg-blue-100 rounded-2xl flex items-center justify-center shrink-0">
-              <Icon name="shield-check" className="text-blue-700 w-7 h-7 text-2xl" />
+              <AppIcon name="shield-check" size={28} className="text-blue-700" />
             </div>
             <div>
               <p className="font-black text-gray-800 text-lg">{panelTitle}</p>
@@ -1835,30 +1918,30 @@ function Stats({ promotions }) {
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-8">
-      <StatsCard label="Promociones activas" value={active} color="green" icon="badge-check" />
-      <StatsCard label="Inactivas" value={inactive} color="blue" icon="monitor-play" />
-      <StatsCard label="Campañas cargadas" value={promotions.length} color="sky" icon="badge-percent" />
+      <StatsCard label="Promociones activas" value={active} color="green" icon="check-circle" />
+      <StatsCard label="Inactivas" value={inactive} color="amber" icon="pause-circle" />
+      <StatsCard label="Campañas cargadas" value={promotions.length} color="sky" icon="megaphone" />
     </div>
   );
 }
 
 function StatsCard({ label, value, color, icon }) {
   const colors = {
-    green: "text-green-500 bg-green-100 text-green-600",
-    blue: "text-blue-500 bg-blue-100 text-blue-600",
-    sky: "text-sky-500 bg-sky-100 text-sky-600",
+    green: { value: "text-green-500", bg: "bg-green-100", icon: "text-green-600" },
+    amber: { value: "text-amber-500", bg: "bg-amber-100", icon: "text-amber-600" },
+    sky: { value: "text-sky-500", bg: "bg-sky-100", icon: "text-sky-600" },
   };
-  const [valueClass, bgClass, iconClass] = colors[color].split(" ");
+  const palette = colors[color];
 
   return (
     <div className="stats-card bg-white rounded-[35px] p-8 shadow-xl">
-      <div className="flex justify-between items-center">
+      <div className="flex justify-between items-center gap-4">
         <div>
           <p className="text-gray-500 text-lg">{label}</p>
-          <h3 className={`text-5xl font-black mt-4 ${valueClass}`}>{value}</h3>
+          <h3 className={`text-5xl font-black mt-4 ${palette.value}`}>{value}</h3>
         </div>
-        <div className={`${bgClass} p-5 rounded-3xl`}>
-          <Icon name={icon} className={`${iconClass} w-10 h-10 text-3xl`} />
+        <div className={`${palette.bg} p-5 rounded-3xl flex items-center justify-center`}>
+          <AppIcon name={icon} size={32} className={palette.icon} />
         </div>
       </div>
     </div>
@@ -1898,8 +1981,8 @@ function PromotionCard({
           <FlyerPlaceholder title={promo.titulo} className="h-[350px] md:h-[500px]" />
         )}
         <div className="absolute inset-0 bg-black/0 hover:bg-black/10 transition duration-500" />
-        <div className="absolute bottom-5 right-5 bg-white/90 backdrop-blur-md rounded-full p-4 shadow-2xl">
-          <Icon name="expand" className="w-6 h-6 text-gray-800 text-xl" />
+        <div className="absolute bottom-5 right-5 bg-white/90 backdrop-blur-md rounded-full p-4 shadow-2xl flex items-center justify-center">
+          <AppIcon name="expand" size={22} className="text-gray-800" />
         </div>
         <div className="absolute top-5 left-5">
           <span className={`${statusClass} text-white px-5 py-2 rounded-full shadow-xl font-bold uppercase`}>
@@ -1913,7 +1996,7 @@ function PromotionCard({
         <h3 className="text-2xl md:text-3xl font-black text-gray-800 mt-5">
           {promo.titulo}
         </h3>
-        <p className="text-gray-500 mt-5 leading-relaxed">{promo.detalle}</p>
+        <p className="text-gray-500 mt-5 leading-relaxed max-h-40 overflow-y-auto promo-scroll pr-1">{promo.detalle}</p>
 
         <div className="flex justify-between gap-4 mt-8">
           <DateBlock label="Inicio" value={promo.fecha_inicio} />
@@ -1929,7 +2012,7 @@ function PromotionCard({
                 className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-4 rounded-2xl transition flex items-center justify-center"
                 aria-label={`Editar ${promo.titulo}`}
               >
-                <Icon name="pencil" className="w-5 h-5 text-xl" />
+                <AppIcon name="pencil" size={20} />
               </button>
             )}
             {canToggle && (
@@ -1965,6 +2048,7 @@ function CatalogScreen({
   onNavigate,
   onLogout,
   onOpenModal,
+  isViewerOpen = false,
 }) {
   const [search, setSearch] = useState("");
   const isAdmin = userProfile?.rol === ADMIN_ROLE;
@@ -1973,7 +2057,7 @@ function CatalogScreen({
   );
 
   return (
-    <div className="bg-[#f3f7fb] min-h-screen overflow-x-hidden">
+    <div className="bg-[#f3f7fb] min-h-screen overflow-x-hidden promo-scroll">
       <header className="bg-white shadow-lg border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 sm:py-5 flex flex-col lg:flex-row justify-between items-center gap-4 sm:gap-5">
           <div>
@@ -2025,11 +2109,11 @@ function CatalogScreen({
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 pb-12 sm:pb-20">
         {filteredPromotions.length > 0 ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5 sm:gap-8">
-            {filteredPromotions.map((promo) => (
-              <CatalogCard key={promo.id} promo={promo} onOpenModal={onOpenModal} />
-            ))}
-          </div>
+          <CatalogPromotionsCarousel
+            promotions={filteredPromotions}
+            onOpenModal={onOpenModal}
+            isViewerOpen={isViewerOpen}
+          />
         ) : (
           <EmptyState title="No se encontraron promociones activas" />
         )}
@@ -2038,55 +2122,261 @@ function CatalogScreen({
   );
 }
 
-function CatalogCard({ promo, onOpenModal }) {
+function useCatalogCarouselVisibleCount() {
+  const [visibleCount, setVisibleCount] = useState(1);
+
+  useEffect(() => {
+    const update = () => {
+      if (window.matchMedia("(min-width: 1280px)").matches) {
+        setVisibleCount(3);
+      } else if (window.matchMedia("(min-width: 768px)").matches) {
+        setVisibleCount(2);
+      } else {
+        setVisibleCount(1);
+      }
+    };
+
+    update();
+    window.addEventListener("resize", update);
+    return () => window.removeEventListener("resize", update);
+  }, []);
+
+  return visibleCount;
+}
+
+const catalogCarouselMemory = {
+  currentIndex: 0,
+  promotionsKey: "",
+};
+
+function getCatalogPromotionsKey(promotions) {
+  return promotions.map((promo) => promo.id).join("|");
+}
+
+function clampCatalogCarouselIndex(index, promotionsLength, shouldCarousel) {
+  if (!shouldCarousel || promotionsLength === 0) return 0;
+  return Math.max(0, Math.min(index, promotionsLength - 1));
+}
+
+function CatalogPromotionsCarousel({ promotions, onOpenModal, isViewerOpen = false }) {
+  const visibleCount = useCatalogCarouselVisibleCount();
+  const shouldCarousel = promotions.length > visibleCount;
+  const promotionsKey = useMemo(() => getCatalogPromotionsKey(promotions), [promotions]);
+  const autoplayPlugin = useMemo(
+    () => Autoplay({ delay: 5000, stopOnInteraction: false, stopOnMouseEnter: true }),
+    []
+  );
+
+  const [emblaRef, emblaApi] = useEmblaCarousel(
+    {
+      align: "start",
+      duration: 32,
+      loop: shouldCarousel,
+      slidesToScroll: 1,
+      watchDrag: !isViewerOpen,
+    },
+    shouldCarousel ? [autoplayPlugin] : []
+  );
+
+  const [canScrollPrev, setCanScrollPrev] = useState(false);
+  const [canScrollNext, setCanScrollNext] = useState(false);
+
+  const syncArrowState = useCallback(() => {
+    if (!emblaApi) return;
+    setCanScrollPrev(emblaApi.canScrollPrev());
+    setCanScrollNext(emblaApi.canScrollNext());
+  }, [emblaApi]);
+
+  const scrollPrev = useCallback(() => {
+    if (!isViewerOpen) emblaApi?.scrollPrev();
+  }, [emblaApi, isViewerOpen]);
+
+  const scrollNext = useCallback(() => {
+    if (!isViewerOpen) emblaApi?.scrollNext();
+  }, [emblaApi, isViewerOpen]);
+
+  useEffect(() => {
+    if (!emblaApi || !shouldCarousel) return undefined;
+
+    const savePosition = () => {
+      catalogCarouselMemory.currentIndex = emblaApi.selectedScrollSnap();
+      catalogCarouselMemory.promotionsKey = promotionsKey;
+    };
+
+    emblaApi.on("select", syncArrowState);
+    emblaApi.on("reInit", syncArrowState);
+    emblaApi.on("select", savePosition);
+    emblaApi.on("reInit", savePosition);
+
+    if (catalogCarouselMemory.promotionsKey === promotionsKey) {
+      const target = clampCatalogCarouselIndex(
+        catalogCarouselMemory.currentIndex,
+        promotions.length,
+        shouldCarousel
+      );
+      emblaApi.scrollTo(target, false);
+    } else {
+      catalogCarouselMemory.promotionsKey = promotionsKey;
+      catalogCarouselMemory.currentIndex = 0;
+      emblaApi.scrollTo(0, false);
+    }
+
+    syncArrowState();
+
+    return () => {
+      emblaApi.off("select", syncArrowState);
+      emblaApi.off("reInit", syncArrowState);
+      emblaApi.off("select", savePosition);
+      emblaApi.off("reInit", savePosition);
+    };
+  }, [emblaApi, promotions.length, promotionsKey, shouldCarousel, syncArrowState]);
+
+  useEffect(() => {
+    if (!emblaApi) return;
+    emblaApi.reInit({ loop: shouldCarousel, watchDrag: !isViewerOpen });
+    const autoplay = emblaApi.plugins()?.autoplay;
+    const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (isViewerOpen || prefersReducedMotion) {
+      autoplay?.stop();
+    } else if (shouldCarousel) {
+      autoplay?.play();
+    }
+  }, [emblaApi, isViewerOpen, shouldCarousel]);
+
+  if (!shouldCarousel) {
+    return (
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5 sm:gap-8">
+        {promotions.map((promo) => (
+          <CatalogCard key={promo.id} promo={promo} onOpenModal={onOpenModal} />
+        ))}
+      </div>
+    );
+  }
+
   return (
-    <article className="bg-white rounded-[28px] sm:rounded-[35px] overflow-hidden shadow-xl hover:shadow-2xl transition duration-500">
+    <div className={`catalog-carousel-shell ${isViewerOpen ? "is-locked" : ""}`}>
       <button
         type="button"
-        onClick={() => onOpenModal(promo)}
-        className="relative overflow-hidden block w-full text-left"
+        className="catalog-carousel-arrow catalog-carousel-arrow--prev"
+        onClick={scrollPrev}
+        disabled={isViewerOpen || !canScrollPrev}
+        aria-label="Promoción anterior"
       >
-        {promo.flyer ? (
-          <img
-            src={promo.flyer}
-            alt={`Flyer de ${promo.titulo}`}
-            className="w-full h-[360px] sm:h-[500px] lg:h-[650px] object-cover cursor-pointer hover:scale-105 transition duration-700"
-          />
-        ) : (
-          <FlyerPlaceholder title={promo.titulo} className="h-[360px] sm:h-[500px] lg:h-[650px]" />
-        )}
-        <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent pointer-events-none" />
-        <div className="absolute top-5 left-5 flex gap-3 flex-wrap">
-          <span className="bg-green-500 text-white px-5 py-2 rounded-full shadow-xl font-semibold">
-            ACTIVO
-          </span>
-          {promo.dias_restantes !== null && promo.dias_restantes <= 5 && (
-            <span className="bg-red-500 text-white px-5 py-2 rounded-full shadow-xl animate-pulse font-semibold">
-              Faltan {promo.dias_restantes} días
-            </span>
-          )}
-        </div>
-        <div className="absolute bottom-5 right-5 bg-white/90 backdrop-blur-lg p-4 rounded-full shadow-2xl">
-          <Icon name="expand" className="w-6 h-6 text-gray-800 text-xl" />
-        </div>
-        <div className="absolute bottom-0 left-0 p-5 sm:p-8 text-white w-full">
-          <SpecialtyTags specialties={promo.especialidades} dark />
-          <h2 className="text-2xl sm:text-4xl font-black mt-4 sm:mt-5 leading-tight">{promo.titulo}</h2>
-        </div>
+        <AppIcon name="chevron-left" size={24} />
       </button>
 
-      <div className="p-5 sm:p-8">
-        <p className="text-gray-600 text-base sm:text-lg leading-relaxed">{promo.detalle}</p>
-        <div className="mt-8 flex justify-between items-center">
-          <div>
-            <p className="text-gray-400 text-sm">Vigencia hasta</p>
-            <p className="text-red-500 font-black text-2xl mt-1">{promo.fecha_fin}</p>
-          </div>
-          <div className="bg-blue-100 p-4 rounded-2xl">
-            <Icon name="badge-percent" className="w-8 h-8 text-blue-700 text-2xl" />
-          </div>
+      <div className="catalog-carousel" ref={emblaRef}>
+        <div className="catalog-carousel-track">
+          {promotions.map((promo) => (
+            <div key={promo.id} className="catalog-carousel-item">
+              <div className="catalog-carousel-card h-full">
+                <CatalogCard promo={promo} onOpenModal={onOpenModal} inCarousel />
+              </div>
+            </div>
+          ))}
         </div>
       </div>
+
+      <button
+        type="button"
+        className="catalog-carousel-arrow catalog-carousel-arrow--next"
+        onClick={scrollNext}
+        disabled={isViewerOpen || !canScrollNext}
+        aria-label="Siguiente promoción"
+      >
+        <AppIcon name="chevron-right" size={24} />
+      </button>
+    </div>
+  );
+}
+
+function CatalogCard({ promo, onOpenModal, inCarousel = false }) {
+  const imageBlock = (
+    <>
+      {promo.flyer ? (
+        <img
+          src={promo.flyer}
+          alt={`Flyer de ${promo.titulo}`}
+          className={`w-full h-[360px] sm:h-[500px] lg:h-[650px] object-cover ${
+            inCarousel ? "catalog-card-image" : "cursor-pointer hover:scale-105 transition duration-700"
+          }`}
+          draggable={false}
+        />
+      ) : (
+        <FlyerPlaceholder title={promo.titulo} className="h-[360px] sm:h-[500px] lg:h-[650px]" />
+      )}
+      <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent pointer-events-none" />
+      <div className="absolute top-5 left-5 flex gap-3 flex-wrap">
+        <span className="bg-green-500 text-white px-5 py-2 rounded-full shadow-xl font-semibold">
+          ACTIVO
+        </span>
+        {promo.dias_restantes !== null && promo.dias_restantes <= 5 && (
+          <span className="bg-red-500 text-white px-5 py-2 rounded-full shadow-xl animate-pulse font-semibold">
+            Faltan {promo.dias_restantes} días
+          </span>
+        )}
+      </div>
+      <div className="absolute bottom-5 right-5 bg-white/90 backdrop-blur-lg p-4 rounded-full shadow-2xl pointer-events-none flex items-center justify-center">
+        <AppIcon name="expand" size={22} className="text-gray-800" />
+      </div>
+      <div className="absolute bottom-0 left-0 p-5 sm:p-8 text-white w-full pointer-events-none">
+        <SpecialtyTags specialties={promo.especialidades} dark />
+        <h2 className="text-2xl sm:text-4xl font-black mt-4 sm:mt-5 leading-tight">{promo.titulo}</h2>
+      </div>
+    </>
+  );
+
+  const detailsBlock = (
+    <div className={`p-5 sm:p-8 ${inCarousel ? "catalog-card-body" : ""}`}>
+      <p
+        className={`text-gray-600 text-base sm:text-lg leading-relaxed ${
+          inCarousel ? "catalog-card-detail line-clamp-4" : "max-h-40 overflow-y-auto promo-scroll pr-1"
+        }`}
+      >
+        {promo.detalle}
+      </p>
+      <div className="mt-8 flex justify-between items-center">
+        <div>
+          <p className="text-gray-400 text-sm">Vigencia hasta</p>
+          <p className="text-red-500 font-black text-2xl mt-1">{promo.fecha_fin}</p>
+        </div>
+        <div className="bg-blue-100 p-4 rounded-2xl flex items-center justify-center">
+          <AppIcon name="megaphone" size={28} className="text-blue-700" />
+        </div>
+      </div>
+    </div>
+  );
+
+  return (
+    <article
+      className={`bg-white rounded-[28px] sm:rounded-[35px] overflow-hidden h-full ${
+        inCarousel ? "catalog-carousel-card-inner" : "shadow-xl hover:shadow-2xl transition duration-500"
+      }`}
+    >
+      {inCarousel ? (
+        <>
+          <button
+            type="button"
+            onClick={() => onOpenModal(promo)}
+            className="catalog-card-image-trigger relative overflow-hidden block w-full text-left"
+            aria-label={`Ver imagen completa de ${promo.titulo}`}
+          >
+            {imageBlock}
+          </button>
+          {detailsBlock}
+        </>
+      ) : (
+        <>
+          <button
+            type="button"
+            onClick={() => onOpenModal(promo)}
+            className="relative overflow-hidden block w-full text-left"
+          >
+            {imageBlock}
+          </button>
+          {detailsBlock}
+        </>
+      )}
     </article>
   );
 }
@@ -2123,7 +2413,7 @@ function SpecialtyMultiSelect({ specialties, selectedIds, onChange }) {
     const matchesQuery = specialty.nombre.toLowerCase().includes(normalizedQuery);
     return !selectedIds.includes(specialtyId) && normalizedQuery && matchesQuery;
   });
-  const visibleSpecialties = availableSpecialties.slice(0, 3);
+  const visibleSpecialties = availableSpecialties;
 
   const addSpecialty = (specialtyId) => {
     onChange((current) =>
@@ -2159,7 +2449,7 @@ function SpecialtyMultiSelect({ specialties, selectedIds, onChange }) {
                   className="bg-white/20 hover:bg-white/30 rounded-full w-6 h-6 inline-flex items-center justify-center"
                   aria-label={`Quitar ${specialty.nombre}`}
                 >
-                  ×
+                  <AppIcon name="close" size={14} />
                 </button>
               </span>
             ))}
@@ -2173,7 +2463,7 @@ function SpecialtyMultiSelect({ specialties, selectedIds, onChange }) {
           className="w-full rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 outline-none focus:bg-white focus:border-blue-500"
         />
         {normalizedQuery ? (
-          <div className="mt-3 rounded-2xl border border-gray-100 overflow-hidden">
+          <div className="mt-3 rounded-2xl border border-gray-100 max-h-52 overflow-y-auto promo-scroll">
             {visibleSpecialties.length > 0 ? (
               visibleSpecialties.map((specialty) => (
               <button
@@ -2188,11 +2478,6 @@ function SpecialtyMultiSelect({ specialties, selectedIds, onChange }) {
             ) : (
               <p className="px-4 py-3 text-gray-400 font-semibold">
                 No se encontraron especialidades.
-              </p>
-            )}
-            {availableSpecialties.length > 3 && (
-              <p className="px-4 py-3 bg-gray-50 text-gray-500 text-sm font-semibold">
-                Hay {availableSpecialties.length - 3} resultados más. Escribe más para filtrar.
               </p>
             )}
           </div>
@@ -2369,7 +2654,7 @@ function DataStatus({ isLoading, error }) {
   }
 
   if (isLoading) {
-    return <AlertMessage type="info" message="Cargando datos desde Supabase..." />;
+    return <AlertMessage type="info" message="Cargando promociones..." />;
   }
 
   return null;
@@ -2438,7 +2723,7 @@ function SearchBox({ value, onChange, placeholder }) {
   return (
     <div className="bg-white rounded-[35px] shadow-xl border border-gray-100 p-5 mt-8 mb-8">
       <div className="relative">
-        <Icon name="search" className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 w-5 h-5 text-xl" />
+        <AppIcon name="search" size={20} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
         <input
           type="search"
           value={value}
@@ -2498,22 +2783,22 @@ function ImageModal({ promotions, modalIndex, setModalIndex, onClose }) {
   }
 
   return (
-    <div id="modalViewer" className="fixed inset-0 bg-black/95 backdrop-blur-md flex items-center justify-center z-50 px-3">
+    <div id="modalViewer" className="fixed inset-0 bg-black/95 backdrop-blur-md flex items-center justify-center z-50 px-3 overflow-y-auto promo-scroll py-6">
       <button
         type="button"
         onClick={onClose}
-        className="absolute top-4 right-4 sm:top-8 sm:right-8 bg-white text-black w-12 h-12 sm:w-16 sm:h-16 rounded-full text-2xl sm:text-3xl font-black hover:scale-110 transition duration-300 shadow-2xl z-10"
+        className="absolute top-4 right-4 sm:top-8 sm:right-8 bg-white text-black w-12 h-12 sm:w-16 sm:h-16 rounded-full hover:scale-110 transition duration-300 shadow-2xl z-10 flex items-center justify-center"
         aria-label="Cerrar imagen"
       >
-        ×
+        <AppIcon name="close" size={28} className="text-black" />
       </button>
       <button
         type="button"
         onClick={goPrevious}
-        className="modal-button absolute left-2 sm:left-5 lg:left-10 bg-white/20 hover:bg-white/30 backdrop-blur-md text-white w-10 h-10 sm:w-14 sm:h-14 lg:w-16 lg:h-16 rounded-full text-2xl sm:text-3xl transition duration-300 flex items-center justify-center z-10"
+        className="modal-button absolute left-2 sm:left-5 lg:left-10 bg-white/20 hover:bg-white/30 backdrop-blur-md text-white w-10 h-10 sm:w-14 sm:h-14 lg:w-16 lg:h-16 rounded-full transition duration-300 flex items-center justify-center z-10"
         aria-label="Imagen anterior"
       >
-        ←
+        <AppIcon name="chevron-left" size={28} className="text-white" />
       </button>
       {promo.flyer ? (
         <img
@@ -2530,10 +2815,10 @@ function ImageModal({ promotions, modalIndex, setModalIndex, onClose }) {
       <button
         type="button"
         onClick={goNext}
-        className="modal-button absolute right-2 sm:right-5 lg:right-10 bg-white/20 hover:bg-white/30 backdrop-blur-md text-white w-10 h-10 sm:w-14 sm:h-14 lg:w-16 lg:h-16 rounded-full text-2xl sm:text-3xl transition duration-300 flex items-center justify-center z-10"
+        className="modal-button absolute right-2 sm:right-5 lg:right-10 bg-white/20 hover:bg-white/30 backdrop-blur-md text-white w-10 h-10 sm:w-14 sm:h-14 lg:w-16 lg:h-16 rounded-full transition duration-300 flex items-center justify-center z-10"
         aria-label="Siguiente imagen"
       >
-        →
+        <AppIcon name="chevron-right" size={28} className="text-white" />
       </button>
     </div>
   );
