@@ -172,6 +172,51 @@ html {
   transform: none !important;
 }
 
+.catalog-carousel-slide-placeholder {
+  background: linear-gradient(135deg, #f8fafc 0%, #e8eef5 100%);
+  border: 1px solid #e8eef5;
+  border-radius: 28px;
+  min-height: 620px;
+  width: 100%;
+}
+
+.flyer-skeleton {
+  background: linear-gradient(135deg, #e8eef5 0%, #f1f5f9 50%, #e8eef5 100%);
+  overflow: hidden;
+  position: relative;
+}
+
+.flyer-skeleton__shimmer {
+  animation: flyerSkeletonShimmer 1.4s ease-in-out infinite;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.65) 50%,
+    transparent 100%
+  );
+  inset: 0;
+  position: absolute;
+  transform: translateX(-100%);
+}
+
+@keyframes flyerSkeletonShimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+@media (min-width: 640px) {
+  .catalog-carousel-slide-placeholder {
+    min-height: 720px;
+  }
+}
+
+@media (min-width: 1024px) {
+  .catalog-carousel-slide-placeholder {
+    min-height: 820px;
+  }
+}
+
 @media (min-width: 768px) {
   .catalog-carousel-track {
     margin-left: -1rem;

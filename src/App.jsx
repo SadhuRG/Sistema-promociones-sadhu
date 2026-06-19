@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import useEmblaCarousel from "embla-carousel-react";
 import Autoplay from "embla-carousel-autoplay";
 import {
@@ -26,6 +26,7 @@ import {
   BsZoomIn,
 } from "react-icons/bs";
 import "./App.css";
+import { optimizeImageForUpload } from "./optimizeImage";
 import { isSupabaseConfigured, supabase } from "./supabaseClient";
 
 const PROMOTION_SELECT = `
@@ -179,6 +180,95 @@ function AppIcon({ name, size = APP_ICON_SIZE, className = "" }) {
   );
 }
 
+// Ventana extra de diapositivas montadas en el carrusel (actual ± adyacentes).
+const CAROUSEL_RENDER_BUFFER = 1;
+
+function isCarouselSlideMounted(index, activeIndex, visibleCount, total) {
+  if (total === 0) return false;
+  const renderStart = Math.max(0, activeIndex - CAROUSEL_RENDER_BUFFER);
+  const renderEnd = Math.min(total - 1, activeIndex + visibleCount + CAROUSEL_RENDER_BUFFER - 1);
+  return index >= renderStart && index <= renderEnd;
+}
+
+function shouldLoadCarouselFlyer(index, activeIndex, visibleCount, total) {
+  if (total === 0) return false;
+  const loadStart = Math.max(0, activeIndex);
+  const loadEnd = Math.min(total - 1, activeIndex + visibleCount - 1);
+  return index >= loadStart && index <= loadEnd;
+}
+
+function FlyerImageSkeleton({ className = "" }) {
+  return (
+    <div className={`flyer-skeleton ${className}`} aria-hidden="true">
+      <div className="flyer-skeleton__shimmer" />
+    </div>
+  );
+}
+
+const LazyFlyerImage = memo(function LazyFlyerImage({
+  src,
+  alt,
+  className = "",
+  eager = false,
+  forceLoad = false,
+}) {
+  const containerRef = useRef(null);
+  const [isVisible, setIsVisible] = useState(eager || forceLoad);
+  const [isLoaded, setIsLoaded] = useState(false);
+
+  useEffect(() => {
+    setIsLoaded(false);
+  }, [src]);
+
+  useEffect(() => {
+    if (eager || forceLoad || !src) {
+      setIsVisible(true);
+      return undefined;
+    }
+
+    const node = containerRef.current;
+    if (!node) return undefined;
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          setIsVisible(true);
+          observer.disconnect();
+        }
+      },
+      // Precarga imágenes un poco antes de entrar al viewport.
+      { rootMargin: "240px 0px" }
+    );
+
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [src, eager, forceLoad]);
+
+  if (!src) return null;
+
+  return (
+    <div ref={containerRef} className={`relative overflow-hidden ${className}`}>
+      {(!isLoaded || !isVisible) && (
+        <FlyerImageSkeleton className="absolute inset-0 w-full h-full rounded-none" />
+      )}
+      {isVisible && (
+        <img
+          src={src}
+          alt={alt}
+          loading={eager ? "eager" : "lazy"}
+          decoding="async"
+          fetchPriority={eager ? "high" : "low"}
+          draggable={false}
+          onLoad={() => setIsLoaded(true)}
+          className={`w-full h-full object-cover transition-opacity duration-300 ${
+            isLoaded ? "opacity-100" : "opacity-0"
+          }`}
+        />
+      )}
+    </div>
+  );
+});
+
 function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [adminUser, setAdminUser] = useState(null);
@@ -203,7 +293,10 @@ function App() {
   const isMarketing = adminUser?.rol === MARKETING_ROLE;
   const canViewPrivateContent = isLoggedIn && (isAdmin || isUser);
   const canAccessPromotionDashboard = isLoggedIn && (isAdmin || isMarketing);
-  const activePromotions = promotions.filter((promo) => promo.isActive);
+  const activePromotions = useMemo(
+    () => promotions.filter((promo) => promo.isActive),
+    [promotions]
+  );
   const modalPromotions = view === "catalogo" ? activePromotions : promotions;
 
   const loadPromotions = useCallback(async () => {
@@ -337,8 +430,24 @@ function App() {
   }, [loadPromotions, loadSpecialties]);
 
   useEffect(() => {
+    // Solo re-normaliza si cambia vigencia/estado; evita 90 objetos nuevos cada minuto.
     const timer = window.setInterval(() => {
-      setPromotions((current) => current.map(normalizePromotion));
+      setPromotions((current) => {
+        let changed = false;
+        const next = current.map((promo) => {
+          const normalized = normalizePromotion(promo);
+          if (
+            normalized.dias_restantes !== promo.dias_restantes ||
+            normalized.isActive !== promo.isActive ||
+            normalized.vencida !== promo.vencida
+          ) {
+            changed = true;
+            return normalized;
+          }
+          return promo;
+        });
+        return changed ? next : current;
+      });
     }, 60000);
 
     return () => window.clearInterval(timer);
@@ -468,10 +577,13 @@ function App() {
     };
   }, [applySession]);
 
-  const openModal = (promo) => {
-    const index = modalPromotions.findIndex((item) => item.id === promo.id);
-    setModalIndex(index >= 0 ? index : 0);
-  };
+  const openModal = useCallback(
+    (promo) => {
+      const index = modalPromotions.findIndex((item) => item.id === promo.id);
+      setModalIndex(index >= 0 ? index : 0);
+    },
+    [modalPromotions]
+  );
 
   const closeModal = useCallback(() => setModalIndex(null), []);
 
@@ -528,9 +640,11 @@ function App() {
   }, [isAdmin, isLoggedIn, view]);
 
   const uploadImage = async (file, folder = "promociones") => {
-    const filePath = makeStoragePath(folder, file);
-    const { error } = await supabase.storage.from("flyers").upload(filePath, file, {
+    const optimizedFile = await optimizeImageForUpload(file);
+    const filePath = makeStoragePath(folder, optimizedFile);
+    const { error } = await supabase.storage.from("flyers").upload(filePath, optimizedFile, {
       cacheControl: "3600",
+      contentType: optimizedFile.type,
       upsert: false,
     });
 
@@ -1892,7 +2006,7 @@ function Dashboard({
       {filteredPromotions.length > 0 ? (
         <div className="grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3 gap-6 lg:gap-10 mt-10">
           {filteredPromotions.map((promo, index) => (
-            <PromotionCard
+            <MemoizedPromotionCard
               key={promo.id}
               promo={promo}
               index={index}
@@ -1960,22 +2074,25 @@ function PromotionCard({
 }) {
   const statusText = getPromotionStatus(promo);
   const statusClass = promo.isActive ? "bg-green-500" : "bg-gray-700";
+  const handleOpen = useCallback(() => onOpenModal(promo), [onOpenModal, promo]);
+  const handleEdit = useCallback(() => onEdit(promo), [onEdit, promo]);
+  const handleToggle = useCallback(() => onToggle(promo.id), [onToggle, promo.id]);
 
   return (
     <article
       className="promo-card bg-white rounded-[35px] overflow-hidden shadow-xl hover:shadow-2xl hover:-translate-y-2 transition duration-500 fade-in"
-      style={{ animationDelay: `${index * 80}ms` }}
+      style={{ animationDelay: `${Math.min(index * 80, 400)}ms` }}
     >
       <button
         type="button"
         className="relative cursor-pointer overflow-hidden block w-full text-left"
-        onClick={() => onOpenModal(promo)}
+        onClick={handleOpen}
       >
         {promo.flyer ? (
-          <img
+          <LazyFlyerImage
             src={promo.flyer}
             alt={`Flyer de ${promo.titulo}`}
-            className="promo-image w-full h-[350px] md:h-[500px] object-cover hover:scale-105 transition duration-700"
+            className="promo-image w-full h-[350px] md:h-[500px] hover:scale-105 transition duration-700"
           />
         ) : (
           <FlyerPlaceholder title={promo.titulo} className="h-[350px] md:h-[500px]" />
@@ -2008,7 +2125,7 @@ function PromotionCard({
             {canEdit && (
               <button
                 type="button"
-                onClick={() => onEdit(promo)}
+                onClick={handleEdit}
                 className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-4 rounded-2xl transition flex items-center justify-center"
                 aria-label={`Editar ${promo.titulo}`}
               >
@@ -2018,7 +2135,7 @@ function PromotionCard({
             {canToggle && (
               <button
                 type="button"
-                onClick={() => onToggle(promo.id)}
+                onClick={handleToggle}
                 disabled={isSaving}
                 className={`w-full bg-gradient-to-r ${
                   promo.isActive
@@ -2036,6 +2153,23 @@ function PromotionCard({
   );
 }
 
+const MemoizedPromotionCard = memo(PromotionCard, (prev, next) =>
+  prev.promo.id === next.promo.id &&
+  prev.promo.flyer === next.promo.flyer &&
+  prev.promo.titulo === next.promo.titulo &&
+  prev.promo.detalle === next.promo.detalle &&
+  prev.promo.fecha_inicio === next.promo.fecha_inicio &&
+  prev.promo.fecha_fin === next.promo.fecha_fin &&
+  prev.promo.isActive === next.promo.isActive &&
+  prev.index === next.index &&
+  prev.isSaving === next.isSaving &&
+  prev.canEdit === next.canEdit &&
+  prev.canToggle === next.canToggle &&
+  prev.onOpenModal === next.onOpenModal &&
+  prev.onToggle === next.onToggle &&
+  prev.onEdit === next.onEdit
+);
+
 function CatalogScreen({
   isLoggedIn,
   userProfile,
@@ -2052,8 +2186,12 @@ function CatalogScreen({
 }) {
   const [search, setSearch] = useState("");
   const isAdmin = userProfile?.rol === ADMIN_ROLE;
-  const filteredPromotions = promotions.filter((promo) =>
-    `${promo.titulo} ${promo.especialidad}`.toLowerCase().includes(search.toLowerCase())
+  const filteredPromotions = useMemo(
+    () =>
+      promotions.filter((promo) =>
+        `${promo.titulo} ${promo.especialidad}`.toLowerCase().includes(search.toLowerCase())
+      ),
+    [promotions, search]
   );
 
   return (
@@ -2109,7 +2247,7 @@ function CatalogScreen({
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 pb-12 sm:pb-20">
         {filteredPromotions.length > 0 ? (
-          <CatalogPromotionsCarousel
+          <MemoizedCatalogPromotionsCarousel
             promotions={filteredPromotions}
             onOpenModal={onOpenModal}
             isViewerOpen={isViewerOpen}
@@ -2180,11 +2318,13 @@ function CatalogPromotionsCarousel({ promotions, onOpenModal, isViewerOpen = fal
 
   const [canScrollPrev, setCanScrollPrev] = useState(false);
   const [canScrollNext, setCanScrollNext] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(0);
 
-  const syncArrowState = useCallback(() => {
+  const syncCarouselState = useCallback(() => {
     if (!emblaApi) return;
     setCanScrollPrev(emblaApi.canScrollPrev());
     setCanScrollNext(emblaApi.canScrollNext());
+    setActiveIndex(emblaApi.selectedScrollSnap());
   }, [emblaApi]);
 
   const scrollPrev = useCallback(() => {
@@ -2203,8 +2343,8 @@ function CatalogPromotionsCarousel({ promotions, onOpenModal, isViewerOpen = fal
       catalogCarouselMemory.promotionsKey = promotionsKey;
     };
 
-    emblaApi.on("select", syncArrowState);
-    emblaApi.on("reInit", syncArrowState);
+    emblaApi.on("select", syncCarouselState);
+    emblaApi.on("reInit", syncCarouselState);
     emblaApi.on("select", savePosition);
     emblaApi.on("reInit", savePosition);
 
@@ -2221,15 +2361,15 @@ function CatalogPromotionsCarousel({ promotions, onOpenModal, isViewerOpen = fal
       emblaApi.scrollTo(0, false);
     }
 
-    syncArrowState();
+    syncCarouselState();
 
     return () => {
-      emblaApi.off("select", syncArrowState);
-      emblaApi.off("reInit", syncArrowState);
+      emblaApi.off("select", syncCarouselState);
+      emblaApi.off("reInit", syncCarouselState);
       emblaApi.off("select", savePosition);
       emblaApi.off("reInit", savePosition);
     };
-  }, [emblaApi, promotions.length, promotionsKey, shouldCarousel, syncArrowState]);
+  }, [emblaApi, promotions.length, promotionsKey, shouldCarousel, syncCarouselState]);
 
   useEffect(() => {
     if (!emblaApi) return;
@@ -2247,7 +2387,7 @@ function CatalogPromotionsCarousel({ promotions, onOpenModal, isViewerOpen = fal
     return (
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5 sm:gap-8">
         {promotions.map((promo) => (
-          <CatalogCard key={promo.id} promo={promo} onOpenModal={onOpenModal} />
+          <MemoizedCatalogCard key={promo.id} promo={promo} onOpenModal={onOpenModal} />
         ))}
       </div>
     );
@@ -2267,13 +2407,38 @@ function CatalogPromotionsCarousel({ promotions, onOpenModal, isViewerOpen = fal
 
       <div className="catalog-carousel" ref={emblaRef}>
         <div className="catalog-carousel-track">
-          {promotions.map((promo) => (
-            <div key={promo.id} className="catalog-carousel-item">
-              <div className="catalog-carousel-card h-full">
-                <CatalogCard promo={promo} onOpenModal={onOpenModal} inCarousel />
+          {promotions.map((promo, index) => {
+            const isMounted = isCarouselSlideMounted(
+              index,
+              activeIndex,
+              visibleCount,
+              promotions.length
+            );
+            const shouldLoadImage = shouldLoadCarouselFlyer(
+              index,
+              activeIndex,
+              visibleCount,
+              promotions.length
+            );
+
+            return (
+              <div key={promo.id} className="catalog-carousel-item">
+                <div className="catalog-carousel-card h-full">
+                  {isMounted ? (
+                    <MemoizedCatalogCard
+                      promo={promo}
+                      onOpenModal={onOpenModal}
+                      inCarousel
+                      shouldLoadImage={shouldLoadImage}
+                      isNearActive={shouldLoadImage}
+                    />
+                  ) : (
+                    <div className="catalog-carousel-slide-placeholder" aria-hidden="true" />
+                  )}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
 
@@ -2290,20 +2455,32 @@ function CatalogPromotionsCarousel({ promotions, onOpenModal, isViewerOpen = fal
   );
 }
 
-function CatalogCard({ promo, onOpenModal, inCarousel = false }) {
+const MemoizedCatalogPromotionsCarousel = memo(CatalogPromotionsCarousel);
+
+function CatalogCard({
+  promo,
+  onOpenModal,
+  inCarousel = false,
+  shouldLoadImage = false,
+  isNearActive = false,
+}) {
+  const handleOpen = useCallback(() => onOpenModal(promo), [onOpenModal, promo]);
+  const imageHeightClass = "h-[360px] sm:h-[500px] lg:h-[650px]";
+
   const imageBlock = (
     <>
       {promo.flyer ? (
-        <img
+        <LazyFlyerImage
           src={promo.flyer}
           alt={`Flyer de ${promo.titulo}`}
-          className={`w-full h-[360px] sm:h-[500px] lg:h-[650px] object-cover ${
+          className={`w-full ${imageHeightClass} ${
             inCarousel ? "catalog-card-image" : "cursor-pointer hover:scale-105 transition duration-700"
           }`}
-          draggable={false}
+          eager={isNearActive}
+          forceLoad={inCarousel ? shouldLoadImage : false}
         />
       ) : (
-        <FlyerPlaceholder title={promo.titulo} className="h-[360px] sm:h-[500px] lg:h-[650px]" />
+        <FlyerPlaceholder title={promo.titulo} className={imageHeightClass} />
       )}
       <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent pointer-events-none" />
       <div className="absolute top-5 left-5 flex gap-3 flex-wrap">
@@ -2357,7 +2534,7 @@ function CatalogCard({ promo, onOpenModal, inCarousel = false }) {
         <>
           <button
             type="button"
-            onClick={() => onOpenModal(promo)}
+            onClick={handleOpen}
             className="catalog-card-image-trigger relative overflow-hidden block w-full text-left"
             aria-label={`Ver imagen completa de ${promo.titulo}`}
           >
@@ -2369,7 +2546,7 @@ function CatalogCard({ promo, onOpenModal, inCarousel = false }) {
         <>
           <button
             type="button"
-            onClick={() => onOpenModal(promo)}
+            onClick={handleOpen}
             className="relative overflow-hidden block w-full text-left"
           >
             {imageBlock}
@@ -2380,6 +2557,19 @@ function CatalogCard({ promo, onOpenModal, inCarousel = false }) {
     </article>
   );
 }
+
+const MemoizedCatalogCard = memo(CatalogCard, (prev, next) =>
+  prev.promo.id === next.promo.id &&
+  prev.promo.flyer === next.promo.flyer &&
+  prev.promo.titulo === next.promo.titulo &&
+  prev.promo.detalle === next.promo.detalle &&
+  prev.promo.fecha_fin === next.promo.fecha_fin &&
+  prev.promo.dias_restantes === next.promo.dias_restantes &&
+  prev.inCarousel === next.inCarousel &&
+  prev.shouldLoadImage === next.shouldLoadImage &&
+  prev.isNearActive === next.isNearActive &&
+  prev.onOpenModal === next.onOpenModal
+);
 
 function SpecialtyTags({ specialties = [], dark = false }) {
   const visibleSpecialties = specialties.length > 0 ? specialties : [{ id: "none", nombre: "Sin especialidad" }];
@@ -2840,6 +3030,9 @@ function ImageModal({ promotions, modalIndex, setModalIndex, onClose }) {
           id="modalImage"
           src={promo.flyer}
           alt={`Flyer ampliado de ${promo.titulo}`}
+          loading="eager"
+          decoding="async"
+          fetchPriority="high"
           className="max-w-[96%] lg:max-w-[92%] max-h-[86vh] sm:max-h-[90vh] rounded-[22px] sm:rounded-[30px] lg:rounded-[40px] shadow-2xl object-contain animate-fade"
         />
       ) : (
