@@ -162,6 +162,19 @@ html {
   touch-action: manipulation;
 }
 
+.catalog-card-image-trigger {
+  isolation: isolate;
+}
+
+.catalog-card-image,
+.catalog-card-image img {
+  display: block;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+  width: 100%;
+}
+
 .catalog-carousel-card-inner {
   border: 1px solid #e8eef5;
   box-shadow: none;

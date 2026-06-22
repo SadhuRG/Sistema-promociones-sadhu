@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import useEmblaCarousel from "embla-carousel-react";
 import Autoplay from "embla-carousel-autoplay";
 import {
@@ -182,18 +182,31 @@ function AppIcon({ name, size = APP_ICON_SIZE, className = "" }) {
 
 // Ventana extra de diapositivas montadas en el carrusel (actual ± adyacentes).
 const CAROUSEL_RENDER_BUFFER = 1;
+const CATALOG_CARD_IMAGE_HEIGHT_CLASS = "h-[360px] sm:h-[500px] lg:h-[650px]";
 
-function isCarouselSlideMounted(index, activeIndex, visibleCount, total) {
+function getCatalogCarouselMaxStartIndex(total, slidesPerView) {
+  return Math.max(0, total - slidesPerView);
+}
+
+function getSafeCarouselStartIndex(activeIndex, total, slidesPerView) {
+  if (total <= 0) return 0;
+  const maxStartIndex = getCatalogCarouselMaxStartIndex(total, slidesPerView);
+  return Math.max(0, Math.min(activeIndex, maxStartIndex));
+}
+
+function isCarouselSlideMounted(index, startIndex, slidesPerView, total) {
   if (total === 0) return false;
-  const renderStart = Math.max(0, activeIndex - CAROUSEL_RENDER_BUFFER);
-  const renderEnd = Math.min(total - 1, activeIndex + visibleCount + CAROUSEL_RENDER_BUFFER - 1);
+  const safeStart = getSafeCarouselStartIndex(startIndex, total, slidesPerView);
+  const renderStart = Math.max(0, safeStart - CAROUSEL_RENDER_BUFFER);
+  const renderEnd = Math.min(total - 1, safeStart + slidesPerView + CAROUSEL_RENDER_BUFFER - 1);
   return index >= renderStart && index <= renderEnd;
 }
 
-function shouldLoadCarouselFlyer(index, activeIndex, visibleCount, total) {
+function shouldLoadCarouselFlyer(index, startIndex, slidesPerView, total) {
   if (total === 0) return false;
-  const loadStart = Math.max(0, activeIndex);
-  const loadEnd = Math.min(total - 1, activeIndex + visibleCount - 1);
+  const safeStart = getSafeCarouselStartIndex(startIndex, total, slidesPerView);
+  const loadStart = Math.max(0, safeStart);
+  const loadEnd = Math.min(total - 1, safeStart + slidesPerView - 1);
   return index >= loadStart && index <= loadEnd;
 }
 
@@ -260,7 +273,7 @@ const LazyFlyerImage = memo(function LazyFlyerImage({
           fetchPriority={eager ? "high" : "low"}
           draggable={false}
           onLoad={() => setIsLoaded(true)}
-          className={`w-full h-full object-cover transition-opacity duration-300 ${
+          className={`absolute inset-0 w-full h-full object-cover object-center transition-opacity duration-300 ${
             isLoaded ? "opacity-100" : "opacity-0"
           }`}
         />
@@ -281,7 +294,8 @@ function App() {
   const [reports, setReports] = useState([]);
   const [users, setUsers] = useState([]);
   const [selectedPromo, setSelectedPromo] = useState(null);
-  const [modalIndex, setModalIndex] = useState(null);
+  const [modalPromoId, setModalPromoId] = useState(null);
+  const [catalogSearch, setCatalogSearch] = useState("");
   const [isLoadingData, setIsLoadingData] = useState(true);
   const [isCheckingSession, setIsCheckingSession] = useState(true);
   const [dataError, setDataError] = useState("");
@@ -297,7 +311,10 @@ function App() {
     () => promotions.filter((promo) => promo.isActive),
     [promotions]
   );
-  const modalPromotions = view === "catalogo" ? activePromotions : promotions;
+  const catalogFilteredPromotions = useMemo(
+    () => filterCatalogPromotions(activePromotions, catalogSearch),
+    [activePromotions, catalogSearch]
+  );
 
   const loadPromotions = useCallback(async () => {
     if (!isSupabaseConfigured) {
@@ -529,7 +546,7 @@ function App() {
         setIsLoggedIn(true);
         setView((currentView) => {
           if (currentView !== "login") return currentView;
-          return profile.rol === USER_ROLE ? "horarios" : "dashboard";
+          return profile.rol === USER_ROLE ? "catalogo" : "dashboard";
         });
       } catch {
         await supabase.auth.signOut();
@@ -577,15 +594,23 @@ function App() {
     };
   }, [applySession]);
 
-  const openModal = useCallback(
-    (promo) => {
-      const index = modalPromotions.findIndex((item) => item.id === promo.id);
-      setModalIndex(index >= 0 ? index : 0);
-    },
-    [modalPromotions]
-  );
+  const openModal = useCallback((promo) => {
+    setModalPromoId(promo.id);
+  }, []);
 
-  const closeModal = useCallback(() => setModalIndex(null), []);
+  const closeModal = useCallback(() => setModalPromoId(null), []);
+
+  const selectModalPromo = useCallback((promoId) => {
+    setModalPromoId(promoId);
+  }, []);
+
+  useEffect(() => {
+    if (view !== "catalogo" || !modalPromoId) return;
+    const isVisible = catalogFilteredPromotions.some((promo) => promo.id === modalPromoId);
+    if (!isVisible) {
+      setModalPromoId(null);
+    }
+  }, [catalogFilteredPromotions, modalPromoId, view]);
 
   const loginAdmin = async ({ username, password }) => {
     if (!isSupabaseConfigured) {
@@ -606,7 +631,7 @@ function App() {
       const profile = await getUserProfile(email);
       setAdminUser(profile);
       setIsLoggedIn(true);
-      setView(profile.rol === USER_ROLE ? "horarios" : "dashboard");
+      setView(profile.rol === USER_ROLE ? "catalogo" : "dashboard");
     } catch (profileError) {
       if (authData.session) {
         await supabase.auth.signOut();
@@ -635,9 +660,9 @@ function App() {
 
   useEffect(() => {
     if (isLoggedIn && view === "login") {
-      setView(isAdmin ? "dashboard" : "horarios");
+      setView(isUser ? "catalogo" : "dashboard");
     }
-  }, [isAdmin, isLoggedIn, view]);
+  }, [isUser, isLoggedIn, view]);
 
   const uploadImage = async (file, folder = "promociones") => {
     const optimizedFile = await optimizeImageForUpload(file);
@@ -785,6 +810,15 @@ function App() {
           ? current.map((promo) => (promo.id === editingId ? savedPromo : promo))
           : [savedPromo, ...current]
       );
+
+      if (!editingId) {
+        setNoticeModal({
+          title: "Guardado correctamente",
+          message: "La promoción se registró exitosamente.",
+          buttonText: "Aceptar",
+          variant: "success",
+        });
+      }
     } finally {
       setIsSaving(false);
     }
@@ -970,8 +1004,8 @@ function App() {
       </AdminLayout>
       <ImageModal
         promotions={promotions}
-        modalIndex={modalIndex}
-        setModalIndex={setModalIndex}
+        modalPromoId={modalPromoId}
+        onSelectPromo={selectModalPromo}
         onClose={closeModal}
       />
       <NoticeModal notice={noticeModal} onClose={() => setNoticeModal(null)} />
@@ -999,18 +1033,20 @@ function App() {
           isMarketing={isMarketing}
           currentView={view}
           promotions={activePromotions}
+          search={catalogSearch}
+          onSearchChange={setCatalogSearch}
           isLoading={isLoadingData}
           error={dataError}
           onLogin={() => navigate("login")}
           onNavigate={navigate}
           onLogout={logout}
           onOpenModal={openModal}
-          isViewerOpen={modalIndex !== null}
+          isViewerOpen={modalPromoId !== null}
         />
         <ImageModal
-          promotions={modalPromotions}
-          modalIndex={modalIndex}
-          setModalIndex={setModalIndex}
+          promotions={catalogFilteredPromotions}
+          modalPromoId={modalPromoId}
+          onSelectPromo={selectModalPromo}
           onClose={closeModal}
         />
       </>
@@ -1026,18 +1062,20 @@ function App() {
           isMarketing={false}
           currentView="catalogo"
           promotions={activePromotions}
+          search={catalogSearch}
+          onSearchChange={setCatalogSearch}
           isLoading={isLoadingData}
           error={dataError}
           onLogin={() => navigate("login")}
           onNavigate={navigate}
           onLogout={logout}
           onOpenModal={openModal}
-          isViewerOpen={modalIndex !== null}
+          isViewerOpen={modalPromoId !== null}
         />
         <ImageModal
-          promotions={activePromotions}
-          modalIndex={modalIndex}
-          setModalIndex={setModalIndex}
+          promotions={catalogFilteredPromotions}
+          modalPromoId={modalPromoId}
+          onSelectPromo={selectModalPromo}
           onClose={closeModal}
         />
       </>
@@ -1308,7 +1346,8 @@ function LoginScreen({ onLogin, onCatalog }) {
           <div className="bg-white rounded-3xl shadow-2xl p-10">
             <div className="text-center">
               <h1 className="text-5xl font-extrabold text-blue-700">ROMA SALUD</h1>
-              <p className="text-gray-500 mt-3">Sistema de Promociones</p>
+              <p className="text-xl font-bold text-gray-500 mt-3">Sistema de Promociones Roma Salud</p>
+              <h1 className="text-base mt-2 font-extrabold text-red-500">Acceso Solo a Personal Autorizado</h1>
             </div>
 
             <form
@@ -2170,12 +2209,23 @@ const MemoizedPromotionCard = memo(PromotionCard, (prev, next) =>
   prev.onEdit === next.onEdit
 );
 
+function filterCatalogPromotions(promotions, search) {
+  const term = search.trim().toLowerCase();
+  if (!term) return promotions;
+
+  return promotions.filter((promo) =>
+    `${promo.titulo} ${promo.especialidad}`.toLowerCase().includes(term)
+  );
+}
+
 function CatalogScreen({
   isLoggedIn,
   userProfile,
   isMarketing,
   currentView,
   promotions,
+  search,
+  onSearchChange,
   isLoading,
   error,
   onLogin,
@@ -2184,13 +2234,9 @@ function CatalogScreen({
   onOpenModal,
   isViewerOpen = false,
 }) {
-  const [search, setSearch] = useState("");
   const isAdmin = userProfile?.rol === ADMIN_ROLE;
   const filteredPromotions = useMemo(
-    () =>
-      promotions.filter((promo) =>
-        `${promo.titulo} ${promo.especialidad}`.toLowerCase().includes(search.toLowerCase())
-      ),
+    () => filterCatalogPromotions(promotions, search),
     [promotions, search]
   );
 
@@ -2198,9 +2244,16 @@ function CatalogScreen({
     <div className="bg-[#f3f7fb] min-h-screen overflow-x-hidden promo-scroll">
       <header className="bg-white shadow-lg border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 sm:py-5 flex flex-col lg:flex-row justify-between items-center gap-4 sm:gap-5">
-          <div>
-            <h1 className="text-4xl sm:text-5xl font-black text-blue-700 tracking-tight text-center lg:text-left">ROMA SALUD</h1>
-            <p className="text-gray-500 mt-2 text-center lg:text-left">Catálogo de promociones activas</p>
+          <div className="flex flex-col sm:flex-row items-center gap-4 sm:gap-5">
+            <img
+              src="/roma_logo.png"
+              alt="Logo Roma Salud"
+              className="h-16 w-16 sm:h-20 sm:w-20 lg:h-24 lg:w-24 object-contain shrink-0"
+            />
+            <div className="text-center lg:text-left">
+              <h1 className="text-4xl sm:text-5xl font-black text-blue-700 tracking-tight">ROMA SALUD</h1>
+              <p className="text-gray-500 mt-2">Catálogo de promociones activas</p>
+            </div>
           </div>
 
           <TopUserNavigation
@@ -2240,7 +2293,7 @@ function CatalogScreen({
         <DataStatus isLoading={isLoading} error={error} />
         <SearchBox
           value={search}
-          onChange={setSearch}
+          onChange={onSearchChange}
           placeholder="Buscar por promoción o especialidad..."
         />
       </section>
@@ -2291,25 +2344,35 @@ function getCatalogPromotionsKey(promotions) {
   return promotions.map((promo) => promo.id).join("|");
 }
 
-function clampCatalogCarouselIndex(index, promotionsLength, shouldCarousel) {
+function clampCatalogCarouselIndex(index, promotionsLength, slidesPerView, shouldCarousel) {
   if (!shouldCarousel || promotionsLength === 0) return 0;
-  return Math.max(0, Math.min(index, promotionsLength - 1));
+  return getSafeCarouselStartIndex(index, promotionsLength, slidesPerView);
 }
 
 function CatalogPromotionsCarousel({ promotions, onOpenModal, isViewerOpen = false }) {
-  const visibleCount = useCatalogCarouselVisibleCount();
-  const shouldCarousel = promotions.length > visibleCount;
+  const slidesPerView = useCatalogCarouselVisibleCount();
+  const promotionsCount = promotions.length;
+  const maxStartIndex = getCatalogCarouselMaxStartIndex(promotionsCount, slidesPerView);
+  const shouldCarousel = promotionsCount >= 3 && promotionsCount > slidesPerView;
   const promotionsKey = useMemo(() => getCatalogPromotionsKey(promotions), [promotions]);
   const autoplayPlugin = useMemo(
-    () => Autoplay({ delay: 5000, stopOnInteraction: false, stopOnMouseEnter: true }),
+    () =>
+      Autoplay({
+        delay: 5000,
+        stopOnInteraction: false,
+        stopOnMouseEnter: true,
+        stopOnLastSnap: true,
+      }),
     []
   );
 
   const [emblaRef, emblaApi] = useEmblaCarousel(
     {
       align: "start",
+      containScroll: "trimSnaps",
+      dragFree: false,
       duration: 32,
-      loop: shouldCarousel,
+      loop: false,
       slidesToScroll: 1,
       watchDrag: !isViewerOpen,
     },
@@ -2318,28 +2381,84 @@ function CatalogPromotionsCarousel({ promotions, onOpenModal, isViewerOpen = fal
 
   const [canScrollPrev, setCanScrollPrev] = useState(false);
   const [canScrollNext, setCanScrollNext] = useState(false);
-  const [activeIndex, setActiveIndex] = useState(0);
+  const [startIndex, setStartIndex] = useState(0);
+
+  useLayoutEffect(() => {
+    if (catalogCarouselMemory.promotionsKey !== promotionsKey) {
+      catalogCarouselMemory.promotionsKey = promotionsKey;
+      catalogCarouselMemory.currentIndex = 0;
+      setStartIndex(0);
+    }
+  }, [promotionsKey]);
 
   const syncCarouselState = useCallback(() => {
     if (!emblaApi) return;
-    setCanScrollPrev(emblaApi.canScrollPrev());
-    setCanScrollNext(emblaApi.canScrollNext());
-    setActiveIndex(emblaApi.selectedScrollSnap());
-  }, [emblaApi]);
+
+    const maxIndex = getCatalogCarouselMaxStartIndex(promotionsCount, slidesPerView);
+    const snap = emblaApi.selectedScrollSnap();
+    const safeSnap = getSafeCarouselStartIndex(snap, promotionsCount, slidesPerView);
+
+    if (safeSnap !== snap) {
+      emblaApi.scrollTo(safeSnap, false);
+    }
+
+    setCanScrollPrev(safeSnap > 0);
+    setCanScrollNext(safeSnap < maxIndex);
+    setStartIndex(safeSnap);
+
+    if (safeSnap >= maxIndex) {
+      emblaApi.plugins()?.autoplay?.stop();
+    }
+  }, [emblaApi, promotionsCount, slidesPerView]);
 
   const scrollPrev = useCallback(() => {
-    if (!isViewerOpen) emblaApi?.scrollPrev();
-  }, [emblaApi, isViewerOpen]);
+    if (isViewerOpen || !emblaApi) return;
+    const current = getSafeCarouselStartIndex(
+      emblaApi.selectedScrollSnap(),
+      promotionsCount,
+      slidesPerView
+    );
+    if (current <= 0) return;
+    emblaApi.scrollTo(current - 1);
+  }, [emblaApi, isViewerOpen, promotionsCount, slidesPerView]);
 
   const scrollNext = useCallback(() => {
-    if (!isViewerOpen) emblaApi?.scrollNext();
-  }, [emblaApi, isViewerOpen]);
+    if (isViewerOpen || !emblaApi) return;
+    const current = getSafeCarouselStartIndex(
+      emblaApi.selectedScrollSnap(),
+      promotionsCount,
+      slidesPerView
+    );
+    const maxIndex = getCatalogCarouselMaxStartIndex(promotionsCount, slidesPerView);
+    if (current >= maxIndex) return;
+    emblaApi.scrollTo(current + 1);
+  }, [emblaApi, isViewerOpen, promotionsCount, slidesPerView]);
+
+  const handleCarouselKeyDown = useCallback(
+    (event) => {
+      if (isViewerOpen) return;
+      if (event.key === "ArrowLeft") {
+        event.preventDefault();
+        scrollPrev();
+      }
+      if (event.key === "ArrowRight") {
+        event.preventDefault();
+        scrollNext();
+      }
+    },
+    [isViewerOpen, scrollNext, scrollPrev]
+  );
 
   useEffect(() => {
     if (!emblaApi || !shouldCarousel) return undefined;
 
     const savePosition = () => {
-      catalogCarouselMemory.currentIndex = emblaApi.selectedScrollSnap();
+      const safeIndex = getSafeCarouselStartIndex(
+        emblaApi.selectedScrollSnap(),
+        promotionsCount,
+        slidesPerView
+      );
+      catalogCarouselMemory.currentIndex = safeIndex;
       catalogCarouselMemory.promotionsKey = promotionsKey;
     };
 
@@ -2351,7 +2470,8 @@ function CatalogPromotionsCarousel({ promotions, onOpenModal, isViewerOpen = fal
     if (catalogCarouselMemory.promotionsKey === promotionsKey) {
       const target = clampCatalogCarouselIndex(
         catalogCarouselMemory.currentIndex,
-        promotions.length,
+        promotionsCount,
+        slidesPerView,
         shouldCarousel
       );
       emblaApi.scrollTo(target, false);
@@ -2359,6 +2479,7 @@ function CatalogPromotionsCarousel({ promotions, onOpenModal, isViewerOpen = fal
       catalogCarouselMemory.promotionsKey = promotionsKey;
       catalogCarouselMemory.currentIndex = 0;
       emblaApi.scrollTo(0, false);
+      setStartIndex(0);
     }
 
     syncCarouselState();
@@ -2369,32 +2490,100 @@ function CatalogPromotionsCarousel({ promotions, onOpenModal, isViewerOpen = fal
       emblaApi.off("select", savePosition);
       emblaApi.off("reInit", savePosition);
     };
-  }, [emblaApi, promotions.length, promotionsKey, shouldCarousel, syncCarouselState]);
+  }, [emblaApi, promotionsCount, promotionsKey, shouldCarousel, slidesPerView, syncCarouselState]);
 
   useEffect(() => {
     if (!emblaApi) return;
-    emblaApi.reInit({ loop: shouldCarousel, watchDrag: !isViewerOpen });
+    emblaApi.reInit({
+      containScroll: "trimSnaps",
+      dragFree: false,
+      loop: false,
+      watchDrag: !isViewerOpen,
+    });
+
+    const safeIndex = getSafeCarouselStartIndex(
+      emblaApi.selectedScrollSnap(),
+      promotionsCount,
+      slidesPerView
+    );
+    emblaApi.scrollTo(safeIndex, false);
+    syncCarouselState();
+
+    if (!shouldCarousel) {
+      setStartIndex(0);
+      emblaApi.plugins()?.autoplay?.stop();
+      return;
+    }
+
     const autoplay = emblaApi.plugins()?.autoplay;
     const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    if (isViewerOpen || prefersReducedMotion) {
+    if (isViewerOpen || prefersReducedMotion || safeIndex >= maxStartIndex) {
       autoplay?.stop();
-    } else if (shouldCarousel) {
+    } else {
       autoplay?.play();
     }
-  }, [emblaApi, isViewerOpen, shouldCarousel]);
+  }, [
+    emblaApi,
+    isViewerOpen,
+    maxStartIndex,
+    promotionsCount,
+    promotionsKey,
+    shouldCarousel,
+    slidesPerView,
+    syncCarouselState,
+  ]);
+
+  useEffect(() => {
+    if (!emblaApi || !shouldCarousel) return undefined;
+
+    const root = emblaApi.rootNode();
+    const onWheel = (event) => {
+      if (Math.abs(event.deltaX) <= Math.abs(event.deltaY)) return;
+
+      const current = getSafeCarouselStartIndex(
+        emblaApi.selectedScrollSnap(),
+        promotionsCount,
+        slidesPerView
+      );
+      const maxIndex = getCatalogCarouselMaxStartIndex(promotionsCount, slidesPerView);
+
+      if ((event.deltaX > 0 && current >= maxIndex) || (event.deltaX < 0 && current <= 0)) {
+        event.preventDefault();
+      }
+    };
+
+    root.addEventListener("wheel", onWheel, { passive: false });
+    return () => root.removeEventListener("wheel", onWheel);
+  }, [emblaApi, promotionsCount, shouldCarousel, slidesPerView]);
 
   if (!shouldCarousel) {
+    const layoutClass =
+      promotionsCount === 1
+        ? "flex justify-center"
+        : promotionsCount === 2
+          ? "grid grid-cols-1 md:grid-cols-2 gap-5 sm:gap-8 max-w-5xl mx-auto"
+          : "grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5 sm:gap-8";
+
+    const cardWrapClass = promotionsCount === 1 ? "w-full max-w-md" : "";
+
     return (
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5 sm:gap-8">
+      <div className={layoutClass}>
         {promotions.map((promo) => (
-          <MemoizedCatalogCard key={promo.id} promo={promo} onOpenModal={onOpenModal} />
+          <div key={promo.id} className={cardWrapClass}>
+            <MemoizedCatalogCard promo={promo} onOpenModal={onOpenModal} />
+          </div>
         ))}
       </div>
     );
   }
 
+  const safeStartIndex = getSafeCarouselStartIndex(startIndex, promotionsCount, slidesPerView);
+
   return (
-    <div className={`catalog-carousel-shell ${isViewerOpen ? "is-locked" : ""}`}>
+    <div
+      className={`catalog-carousel-shell ${isViewerOpen ? "is-locked" : ""}`}
+      onKeyDown={handleCarouselKeyDown}
+    >
       <button
         type="button"
         className="catalog-carousel-arrow catalog-carousel-arrow--prev"
@@ -2405,20 +2594,28 @@ function CatalogPromotionsCarousel({ promotions, onOpenModal, isViewerOpen = fal
         <AppIcon name="chevron-left" size={24} />
       </button>
 
-      <div className="catalog-carousel" ref={emblaRef}>
+      <div
+        className="catalog-carousel"
+        ref={emblaRef}
+        key={`${promotionsKey}-${slidesPerView}`}
+        tabIndex={isViewerOpen ? -1 : 0}
+        role="region"
+        aria-roledescription="carrusel"
+        aria-label="Promociones filtradas"
+      >
         <div className="catalog-carousel-track">
           {promotions.map((promo, index) => {
             const isMounted = isCarouselSlideMounted(
               index,
-              activeIndex,
-              visibleCount,
-              promotions.length
+              safeStartIndex,
+              slidesPerView,
+              promotionsCount
             );
             const shouldLoadImage = shouldLoadCarouselFlyer(
               index,
-              activeIndex,
-              visibleCount,
-              promotions.length
+              safeStartIndex,
+              slidesPerView,
+              promotionsCount
             );
 
             return (
@@ -2465,7 +2662,6 @@ function CatalogCard({
   isNearActive = false,
 }) {
   const handleOpen = useCallback(() => onOpenModal(promo), [onOpenModal, promo]);
-  const imageHeightClass = "h-[360px] sm:h-[500px] lg:h-[650px]";
 
   const imageBlock = (
     <>
@@ -2473,14 +2669,19 @@ function CatalogCard({
         <LazyFlyerImage
           src={promo.flyer}
           alt={`Flyer de ${promo.titulo}`}
-          className={`w-full ${imageHeightClass} ${
-            inCarousel ? "catalog-card-image" : "cursor-pointer hover:scale-105 transition duration-700"
-          }`}
+          className={
+            inCarousel
+              ? "catalog-card-image absolute inset-0 w-full h-full"
+              : `w-full ${CATALOG_CARD_IMAGE_HEIGHT_CLASS} cursor-pointer hover:scale-105 transition duration-700`
+          }
           eager={isNearActive}
           forceLoad={inCarousel ? shouldLoadImage : false}
         />
       ) : (
-        <FlyerPlaceholder title={promo.titulo} className={imageHeightClass} />
+        <FlyerPlaceholder
+          title={promo.titulo}
+          className={inCarousel ? "absolute inset-0 w-full h-full" : CATALOG_CARD_IMAGE_HEIGHT_CLASS}
+        />
       )}
       <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent pointer-events-none" />
       <div className="absolute top-5 left-5 flex gap-3 flex-wrap">
@@ -2535,7 +2736,7 @@ function CatalogCard({
           <button
             type="button"
             onClick={handleOpen}
-            className="catalog-card-image-trigger relative overflow-hidden block w-full text-left"
+            className={`catalog-card-image-trigger relative overflow-hidden block w-full text-left shrink-0 ${CATALOG_CARD_IMAGE_HEIGHT_CLASS}`}
             aria-label={`Ver imagen completa de ${promo.titulo}`}
           >
             {imageBlock}
@@ -2547,7 +2748,7 @@ function CatalogCard({
           <button
             type="button"
             onClick={handleOpen}
-            className="relative overflow-hidden block w-full text-left"
+            className={`relative overflow-hidden block w-full text-left shrink-0 ${CATALOG_CARD_IMAGE_HEIGHT_CLASS}`}
           >
             {imageBlock}
           </button>
@@ -2901,20 +3102,30 @@ function AlertMessage({ type = "info", message }) {
 function NoticeModal({ notice, onClose }) {
   if (!notice) return null;
 
+  const isSuccess = notice.variant === "success";
+  const iconStyles = isSuccess
+    ? "bg-green-100 text-green-700"
+    : "bg-blue-100 text-blue-700";
+  const buttonStyles = isSuccess
+    ? "bg-green-700 hover:bg-green-800"
+    : "bg-blue-700 hover:bg-blue-800";
+
   return (
     <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[60] px-4">
       <div className="bg-white rounded-[32px] shadow-2xl max-w-md w-full p-8 text-center">
-        <div className="w-16 h-16 rounded-3xl bg-blue-100 text-blue-700 flex items-center justify-center mx-auto text-3xl font-black">
-          !
+        <div
+          className={`w-16 h-16 rounded-3xl flex items-center justify-center mx-auto text-3xl font-black ${iconStyles}`}
+        >
+          {isSuccess ? "✓" : "!"}
         </div>
         <h2 className="text-3xl font-black text-gray-800 mt-5">{notice.title}</h2>
         <p className="text-gray-500 mt-4 leading-relaxed">{notice.message}</p>
         <button
           type="button"
           onClick={onClose}
-          className="w-full mt-8 bg-blue-700 hover:bg-blue-800 text-white py-4 rounded-2xl font-bold shadow-xl transition"
+          className={`w-full mt-8 text-white py-4 rounded-2xl font-bold shadow-xl transition ${buttonStyles}`}
         >
-          Entendido
+          {notice.buttonText || "Entendido"}
         </button>
       </div>
     </div>
@@ -2961,25 +3172,29 @@ function SearchBox({ value, onChange, placeholder }) {
   );
 }
 
-function ImageModal({ promotions, modalIndex, setModalIndex, onClose }) {
-  const isOpen = modalIndex !== null && promotions[modalIndex];
+function ImageModal({ promotions, modalPromoId, onSelectPromo, onClose }) {
+  const modalIndex = useMemo(() => {
+    if (!modalPromoId) return null;
+    const index = promotions.findIndex((item) => item.id === modalPromoId);
+    return index >= 0 ? index : null;
+  }, [modalPromoId, promotions]);
+
+  const isOpen = modalIndex !== null;
   const promo = isOpen ? promotions[modalIndex] : null;
 
-  const goNext = useCallback(
-    () =>
-      setModalIndex((current) =>
-        current === null ? 0 : (current + 1) % promotions.length
-      ),
-    [promotions.length, setModalIndex]
-  );
+  const goNext = useCallback(() => {
+    if (!modalPromoId || promotions.length === 0) return;
+    const currentIndex = promotions.findIndex((item) => item.id === modalPromoId);
+    if (currentIndex < 0) return;
+    onSelectPromo(promotions[(currentIndex + 1) % promotions.length].id);
+  }, [modalPromoId, onSelectPromo, promotions]);
 
-  const goPrevious = useCallback(
-    () =>
-      setModalIndex((current) =>
-        current === null ? 0 : (current - 1 + promotions.length) % promotions.length
-      ),
-    [promotions.length, setModalIndex]
-  );
+  const goPrevious = useCallback(() => {
+    if (!modalPromoId || promotions.length === 0) return;
+    const currentIndex = promotions.findIndex((item) => item.id === modalPromoId);
+    if (currentIndex < 0) return;
+    onSelectPromo(promotions[(currentIndex - 1 + promotions.length) % promotions.length].id);
+  }, [modalPromoId, onSelectPromo, promotions]);
 
   useEffect(() => {
     if (!isOpen) {
